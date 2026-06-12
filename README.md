@@ -112,12 +112,6 @@ ini
 Среднее время	245 мс	47 мс
 P99	2800 мс	120 мс
 Применение изменений
-Вариант 1: Лайв-патч (прямое применение)
-bash
-
-git clone https://github.com/YOUR_USERNAME/devops-test-fix
-cd devops-test-fix
-./apply-fix.sh
 
 Вариант 2: Создание нового образа
 bash
