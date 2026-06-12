@@ -4,7 +4,6 @@
 
 При конкурентной нагрузке (50+ параллельных запросов) сервис возвращает ошибку:
 
-```json
 {"ok":false,"error":"cache is busy","type":"RuntimeException"}
 
 Частота: ~28% запросов падают при 100 запросах (50 в parallel)
@@ -51,7 +50,7 @@ pm.start_servers = 2
 
     Persistent connections в PDO
 
-php
+
 
 PDO::ATTR_PERSISTENT => true  # соединения не закрываются
 
