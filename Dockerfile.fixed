@@ -1,0 +1,14 @@
+FROM docker.kelnik.pro/tests/devops-stack:1.0
+Применяем исправления
+
+RUN sed -i
+-e 's/pm.max_children = 5/pm.max_children = 15/'
+-e 's/pm.start_servers = 2/pm.start_servers = 5/'
+-e 's/pm.min_spare_servers = 1/pm.min_spare_servers = 3/'
+-e 's/pm.max_spare_servers = 3/pm.max_spare_servers = 8/'
+/etc/php/8.4/fpm/pool.d/www.conf
+
+COPY index.php.fixed /var/www/html/index.php
+
+EXPOSE 80
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]

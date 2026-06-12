@@ -1,0 +1,174 @@
+<?php
+declare(strict_types=1);
+
+error_reporting(E_ALL);
+ini_set('display_errors', '0');
+header('Content-Type: application/json; charset=utf-8');
+
+function env(string $key, string $default = ''): string {
+    $v = getenv($key);
+    return ($v === false || $v === '') ? $default : $v;
+}
+
+function db(): PDO {
+    static $pdo = null;
+    if ($pdo instanceof PDO) {
+        return $pdo;
+    }
+
+    $host = env('DB_HOST', 'localhost');
+    $name = env('DB_NAME', 'app');
+    $user = env('DB_USER', 'app');
+    $pass = env('DB_PASS', 'app');
+
+    $dsn = "mysql:host={$host};dbname={$name};charset=utf8mb4";
+
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_PERSISTENT => false,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+
+    return $pdo;
+}
+
+function redisClient(): Redis {
+    static $redis = null;
+    if ($redis instanceof Redis) {
+        return $redis;
+    }
+
+    $redis = new Redis();
+    $redis->connect(
+        env('REDIS_HOST', '127.0.0.1'),
+        (int)env('REDIS_PORT', '6379'),
+        1.5
+    );
+
+    $password = env('REDIS_PASS', '');
+    if ($password !== '') {
+        $redis->auth($password);
+    }
+
+    return $redis;
+}
+
+function expensiveLoad(PDO $pdo): array {
+    usleep(2500000);
+    $stmt = $pdo->query('SELECT id, title, price FROM items ORDER BY id DESC LIMIT 20');
+    return $stmt->fetchAll();
+}
+
+function getItems(): array {
+    $redis = redisClient();
+    $pdo = db();
+
+    $cacheKey = 'demo:items:v1';
+    $lockKey = 'demo:items:v1:lock';
+
+    $cached = $redis->get($cacheKey);
+    if ($cached !== false) {
+        return json_decode($cached, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    $token = bin2hex(random_bytes(8));
+    $locked = $redis->set($lockKey, $token, ['nx', 'ex' => 5]);
+
+    if (!$locked) {
+        $maxRetries = 6;
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            usleep(150000 * $attempt);
+            
+            $cached = $redis->get($cacheKey);
+            if ($cached !== false) {
+                return json_decode($cached, true, 512, JSON_THROW_ON_ERROR);
+            }
+        }
+        
+        $cached = $redis->get($cacheKey);
+        if ($cached !== false) {
+            return json_decode($cached, true, 512, JSON_THROW_ON_ERROR);
+        }
+        
+        throw new RuntimeException('cache is busy');
+    }
+
+    try {
+        $data = expensiveLoad($pdo);
+        $redis->setex($cacheKey, 5, json_encode($data, JSON_THROW_ON_ERROR));
+        return $data;
+    } finally {
+        if ($redis->get($lockKey) === $token) {
+            $redis->del($lockKey);
+        }
+    }
+}
+
+function addItem(): array {
+    $pdo = db();
+    $redis = redisClient();
+
+    $title = 'item-' . date('His') . '-' . bin2hex(random_bytes(2));
+    $price = random_int(100, 999);
+
+    $stmt = $pdo->prepare('INSERT INTO items (title, price, created_at) VALUES (?, ?, NOW())');
+    $stmt->execute([$title, $price]);
+
+    $redis->del('demo:items:v1');
+
+    return [
+        'ok' => true,
+        'title' => $title,
+        'price' => $price,
+    ];
+}
+
+try {
+    $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+    if ($path === '/health') {
+        echo json_encode([
+            'ok' => true,
+            'time' => date(DATE_ATOM),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    if ($path === '/diag') {
+        $redis = redisClient();
+        $pdo = db();
+
+        echo json_encode([
+            'ok' => true,
+            'redis' => $redis->ping(),
+            'db' => (bool)$pdo->query('SELECT 1')->fetchColumn(),
+            'time' => date(DATE_ATOM),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    if ($path === '/items') {
+        echo json_encode([
+            'ok' => true,
+            'data' => getItems(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    if ($path === '/add' && $method === 'POST') {
+        echo json_encode(addItem(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    http_response_code(404);
+    echo json_encode(['ok' => false, 'error' => 'not found']);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode([
+        'ok' => false,
+        'error' => $e->getMessage(),
+        'type' => get_class($e),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}

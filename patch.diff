@@ -1,0 +1,75 @@
+diff --git a/index.php b/index.php
+--- index.php (оригинал)
++++ index.php (исправленный)
+@@ -25,7 +25,7 @@
+pdo=newPDO(pdo=newPDO(dsn, user,user,pass, [
+PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+
+    PDO::ATTR_PERSISTENT => true,
+
+    PDO::ATTR_PERSISTENT => false,
+    PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+
+@@ -73,15 +73,23 @@
+$token = bin2hex(random_bytes(8));
+
+    locked=locked=redis->set(lockKey,lockKey,token, ['nx', 'ex' => 2]);
+
+    locked=locked=redis->set(lockKey,lockKey,token, ['nx', 'ex' => 5]);
+
+    if (!$locked) {
+
+    usleep(200000);
+
+    cached=cached=redis->get($cacheKey);
+
+    if ($cached !== false) {
+
+    return json_decode($cached, true, 512, JSON_THROW_ON_ERROR);
+
+    }
+
+    throw new RuntimeException('cache is busy');
+
+    $maxRetries = 6;
+
+    for (attempt=1;attempt=1;attempt <= maxRetries;maxRetries;attempt++) {
+
+    usleep(150000 * $attempt);
+
+    cached=cached=redis->get($cacheKey);
+
+    if ($cached !== false) {
+
+    return json_decode($cached, true, 512, JSON_THROW_ON_ERROR);
+
+    }
+
+    }
+
+    cached=cached=redis->get($cacheKey);
+
+    if ($cached !== false) {
+
+    return json_decode($cached, true, 512, JSON_THROW_ON_ERROR);
+
+    }
+
+    throw new RuntimeException('cache is busy');
+    }
+
+diff --git a/www.conf b/www.conf
+--- www.conf (оригинал)
++++ www.conf (исправленный)
+@@ -1,5 +1,5 @@
+pm = dynamic
+-pm.max_children = 5
+-pm.start_servers = 2
+-pm.min_spare_servers = 1
+-pm.max_spare_servers = 3
++pm.max_children = 15
++pm.start_servers = 5
++pm.min_spare_servers = 3
++pm.max_spare_servers = 8
